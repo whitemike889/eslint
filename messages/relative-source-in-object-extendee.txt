@@ -1,0 +1,6 @@
+A relative source "<%= relativeSource %>" was found at the "<%= kind %>" of the object extendee "<%= importerName %>".
+
+If you pass an object to "extends",
+
+- the "extends" field in the object must be other objects, absolute paths, plugin configs (e.g. "plugin:foo/bar"), "eslint:recommended", or "eslint:all".
+- the "parser" field in the object must be absolute paths.

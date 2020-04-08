@@ -2414,4 +2414,143 @@ describe("ConfigArrayFactory", () => {
             );
         });
     });
+
+    describe("'extends' property should allow objects.", () => {
+        const { ConfigArrayFactory } = defineConfigArrayFactoryWithInMemoryFileSystem({
+            cwd: () => tempDir,
+            files: {
+                "node_modules/parser/index.js": "exports.parse = () => {}",
+                "node_modules/eslint-config-foo/index.js": "module.exports = { rules: { 'no-undef': 'error' } }",
+                "node_modules/eslint-plugin-foo/index.js": "exports.configs = { bar: { rules: { 'no-unused-var': 'error' } } }",
+
+                // Valid.
+                "eslintrc-valid.json": JSON.stringify({
+                    extends: [
+                        {
+                            extends: [
+
+                                // Absolute paths are OK.
+                                path.join(tempDir, "node_modules/eslint-config-foo/index.js"),
+
+                                // Plugin names are OK.
+                                "plugin:foo/bar"
+                            ],
+
+                            // Absolute paths are OK.
+                            parser: path.join(tempDir, "node_modules/parser/index.js"),
+
+                            // Plugin names are OK.
+                            plugins: ["foo"],
+
+                            rules: { "no-redeclare": "error" }
+                        }
+                    ]
+                }),
+
+                // Invalid - disallows module names in the `extends` of object extendees.
+                "eslintrc-module-name-in-extends.json": JSON.stringify({
+                    extends: [
+                        { extends: "foo" }
+                    ]
+                }),
+
+                // Invalid - disallows relative paths in the `extends` of object extendees.
+                "eslintrc-relative-path-in-extends.json": JSON.stringify({
+                    extends: [
+                        { extends: "./eslintrc-valid.json" }
+                    ]
+                }),
+
+                // Invalid - disallows module names in the `parser` of object extendees.
+                "eslintrc-module-name-in-parser.json": JSON.stringify({
+                    extends: [
+                        { parser: "parser" }
+                    ]
+                }),
+
+                // Invalid - disallows relative paths in the `parser` of object extendees.
+                "eslintrc-relative-path-in-parser.json": JSON.stringify({
+                    extends: [
+                        { parser: "./node_modules/parser/index.js" }
+                    ]
+                })
+            }
+        });
+        const factory = new ConfigArrayFactory();
+
+        it("should handle objects in 'extends' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid.json");
+            const { rules } = configArray.extractConfig("test.js");
+
+            assert.deepStrictEqual(rules, {
+                "no-undef": ["error"],
+                "no-unused-var": ["error"],
+                "no-redeclare": ["error"]
+            });
+        });
+
+        it("should throw an error if a module name exists at the 'extends' of object extendees", () => {
+            try {
+                factory.loadFile("eslintrc-module-name-in-extends.json");
+            } catch (error) {
+                assert.strictEqual(error.message, `Relative source 'foo' was found in the 'extends' of the object extendee 'eslintrc-module-name-in-extends.json » extends[0]'.\nReferenced from: ${path.join(tempDir, "eslintrc-module-name-in-extends.json")}`);
+                assert.strictEqual(error.messageTemplate, "relative-source-in-object-extendee");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-module-name-in-extends.json » extends[0]",
+                    kind: "extends",
+                    relativeSource: "foo"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if a relative path exists at the 'extends' of object extendees", () => {
+            try {
+                factory.loadFile("eslintrc-relative-path-in-extends.json");
+            } catch (error) {
+                assert.strictEqual(error.message, `Relative source './eslintrc-valid.json' was found in the 'extends' of the object extendee 'eslintrc-relative-path-in-extends.json » extends[0]'.\nReferenced from: ${path.join(tempDir, "eslintrc-relative-path-in-extends.json")}`);
+                assert.strictEqual(error.messageTemplate, "relative-source-in-object-extendee");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-relative-path-in-extends.json » extends[0]",
+                    kind: "extends",
+                    relativeSource: "./eslintrc-valid.json"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if a module name exists at the 'parser' of object extendees", () => {
+            try {
+                factory.loadFile("eslintrc-module-name-in-parser.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Relative source 'parser' was found in the 'parser' of the object extendee 'eslintrc-module-name-in-parser.json » extends[0]'.");
+                assert.strictEqual(error.messageTemplate, "relative-source-in-object-extendee");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-module-name-in-parser.json » extends[0]",
+                    kind: "parser",
+                    relativeSource: "parser"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if a relative path exists at the 'parser' of object extendees", () => {
+            try {
+                factory.loadFile("eslintrc-relative-path-in-parser.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Relative source './node_modules/parser/index.js' was found in the 'parser' of the object extendee 'eslintrc-relative-path-in-parser.json » extends[0]'.");
+                assert.strictEqual(error.messageTemplate, "relative-source-in-object-extendee");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-relative-path-in-parser.json » extends[0]",
+                    kind: "parser",
+                    relativeSource: "./node_modules/parser/index.js"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+    });
 });

@@ -8,7 +8,21 @@
 const baseConfigProperties = {
     $schema: { type: "string" },
     env: { type: "object" },
-    extends: { $ref: "#/definitions/stringOrStrings" },
+    extends: {
+        oneOf: [
+            { type: "string" },
+            {
+                type: "array",
+                items: {
+                    oneOf: [
+                        { type: "string" },
+                        { $ref: "#/definitions/objectConfig" }
+                    ]
+                },
+                additionalItems: false
+            }
+        ]
+    },
     globals: { type: "object" },
     overrides: {
         type: "array",

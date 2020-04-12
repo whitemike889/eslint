@@ -16,7 +16,7 @@ const { defineConfigArrayFactoryWithInMemoryFileSystem } = require("./_utils");
 const tempDir = path.join(os.tmpdir(), "eslint/config-array-factory");
 
 // For VSCode intellisense.
-/** @typedef {InstanceType<ReturnType<defineConfigArrayFactoryWithInMemoryFileSystem>["ConfigArrayFactory"]>} ConfigArrayFactory */
+/** @typedef {import("../../../lib/cli-engine/config-array-factory")["ConfigArrayFactory"]} ConfigArrayFactory */
 
 /**
  * Assert a config array element.
@@ -2412,6 +2412,223 @@ describe("ConfigArrayFactory", () => {
                 loadedPlugins.get("example2"),
                 { configs: { name: "eslint-plugin-example2" } }
             );
+        });
+    });
+
+    describe("plugin conflict fallback", () => {
+        let uid = 0;
+        let root = "";
+
+        beforeEach(() => {
+            root = path.resolve(`config-array-factory/plugin-conflict-fallback-${++uid}`);
+        });
+
+        /** @type {ConfigArrayFactory} */
+        let InMemoryConfigArrayFactory;
+
+        describe("if sibling extendees have a same plugin,", () => {
+            beforeEach(() => {
+                InMemoryConfigArrayFactory = defineConfigArrayFactoryWithInMemoryFileSystem({
+                    cwd: () => root,
+                    files: {
+                        "node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo"]
+                        })}`,
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-two/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo"]
+                        })}`,
+                        ".eslintrc.json": JSON.stringify({
+                            extends: ["one", "two"]
+                        })
+                    }
+                }).ConfigArrayFactory;
+            });
+
+            /*
+             * This is the plugin conflict fallback.
+             * It loads the conflicted plugin from the location of the entry config file as same as the previous behavior for backward compatibility.
+             */
+            it("should load the plugin from the location of the entry config file (this is the plugin conflict fallback)", () => {
+                const factory = new InMemoryConfigArrayFactory();
+                const configArray = factory.loadFile(".eslintrc.json");
+
+                assert.strictEqual(configArray.length, 3);
+                assert.strictEqual(configArray[0].name, ".eslintrc.json » eslint-config-one");
+                assert.strictEqual(configArray[0].plugins.foo.filePath, path.join(root, "node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[1].name, ".eslintrc.json » eslint-config-two");
+                assert.strictEqual(configArray[1].plugins.foo.filePath, path.join(root, "node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[2].name, ".eslintrc.json");
+                assert.strictEqual(configArray[2].plugins, void 0);
+            });
+        });
+
+        describe("if linear extendees have a same plugin,", () => {
+            beforeEach(() => {
+                InMemoryConfigArrayFactory = defineConfigArrayFactoryWithInMemoryFileSystem({
+                    cwd: () => root,
+                    files: {
+                        "node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/index.js": `module.exports = ${JSON.stringify({
+                            extends: ["two"],
+                            plugins: ["foo"]
+                        })}`,
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-two/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo"]
+                        })}`,
+                        ".eslintrc.json": JSON.stringify({
+                            extends: ["one"]
+                        })
+                    }
+                }).ConfigArrayFactory;
+            });
+
+            it("should load the plugin from the location of the *first* config file that has the plugin", () => {
+                const factory = new InMemoryConfigArrayFactory();
+                const configArray = factory.loadFile(".eslintrc.json");
+
+                /*
+                 * Because `.eslintrc.json » eslint-config-one` has `eslint-plugin-foo`,
+                 * then the `eslint-plugin-foo` of `.eslintrc.json » eslint-config-one » eslint-config-two` is it, too.
+                 */
+                assert.strictEqual(configArray.length, 3);
+                assert.strictEqual(configArray[0].name, ".eslintrc.json » eslint-config-one » eslint-config-two");
+                assert.strictEqual(configArray[0].plugins.foo.filePath, path.join(root, "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[1].name, ".eslintrc.json » eslint-config-one");
+                assert.strictEqual(configArray[1].plugins.foo.filePath, path.join(root, "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[2].name, ".eslintrc.json");
+                assert.strictEqual(configArray[2].plugins, void 0);
+            });
+        });
+
+        describe("if sibling extendees have different plugins,", () => {
+            beforeEach(() => {
+                InMemoryConfigArrayFactory = defineConfigArrayFactoryWithInMemoryFileSystem({
+                    cwd: () => root,
+                    files: {
+                        "node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo"]
+                        })}`,
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-two/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["bar"]
+                        })}`,
+                        ".eslintrc.json": JSON.stringify({
+                            extends: ["one", "two"]
+                        })
+                    }
+                }).ConfigArrayFactory;
+            });
+
+            it("should load the plugins from the location of each config file", () => {
+                const factory = new InMemoryConfigArrayFactory();
+                const configArray = factory.loadFile(".eslintrc.json");
+
+                assert.strictEqual(configArray.length, 3);
+                assert.strictEqual(configArray[0].name, ".eslintrc.json » eslint-config-one");
+                assert.strictEqual(configArray[0].plugins.foo.filePath, path.join(root, "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[1].name, ".eslintrc.json » eslint-config-two");
+                assert.strictEqual(configArray[1].plugins.bar.filePath, path.join(root, "node_modules/eslint-config-two/node_modules/eslint-plugin-bar/index.js"));
+                assert.strictEqual(configArray[2].name, ".eslintrc.json");
+                assert.strictEqual(configArray[2].plugins, void 0);
+            });
+        });
+
+        describe("if linear extendees have different plugins,", () => {
+            beforeEach(() => {
+                InMemoryConfigArrayFactory = defineConfigArrayFactoryWithInMemoryFileSystem({
+                    cwd: () => root,
+                    files: {
+                        "node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/index.js": `module.exports = ${JSON.stringify({
+                            extends: ["two"],
+                            plugins: ["foo"]
+                        })}`,
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-two/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["bar"]
+                        })}`,
+                        ".eslintrc.json": JSON.stringify({
+                            extends: ["one"]
+                        })
+                    }
+                }).ConfigArrayFactory;
+            });
+
+            it("should load the plugins from the location of each config file", () => {
+                const factory = new InMemoryConfigArrayFactory();
+                const configArray = factory.loadFile(".eslintrc.json");
+
+                assert.strictEqual(configArray.length, 3);
+                assert.strictEqual(configArray[0].name, ".eslintrc.json » eslint-config-one » eslint-config-two");
+                assert.strictEqual(configArray[0].plugins.bar.filePath, path.join(root, "node_modules/eslint-config-two/node_modules/eslint-plugin-bar/index.js"));
+                assert.strictEqual(configArray[1].name, ".eslintrc.json » eslint-config-one");
+                assert.strictEqual(configArray[1].plugins.foo.filePath, path.join(root, "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[2].name, ".eslintrc.json");
+                assert.strictEqual(configArray[2].plugins, void 0);
+            });
+        });
+
+        describe("in the complex case,", () => {
+            beforeEach(() => {
+                InMemoryConfigArrayFactory = defineConfigArrayFactoryWithInMemoryFileSystem({
+                    cwd: () => root,
+                    files: {
+                        "node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-plugin-qiz/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-one/node_modules/eslint-plugin-qiz/index.js": "",
+                        "node_modules/eslint-config-one/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo", "bar"]
+                        })}`,
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-foo/index.js": "",
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-bar/index.js": "",
+                        "node_modules/eslint-config-two/node_modules/eslint-plugin-qiz/index.js": "",
+                        "node_modules/eslint-config-two/index.js": `module.exports = ${JSON.stringify({
+                            plugins: ["foo", "bar", "qiz"]
+                        })}`,
+                        ".eslintrc.json": JSON.stringify({
+                            plugins: ["bar"],
+                            extends: ["one", "two"]
+                        })
+                    }
+                }).ConfigArrayFactory;
+            });
+
+            /*
+             * - `eslint-plugin-foo` is loaded from `.eslintrc.json` as the plugin conflict fallback.
+             * - `eslint-plugin-bar` is loaded from `.eslintrc.json` normally because `.eslintrc.json` has it.
+             * - `eslint-plugin-qiz` is loaded from `.eslintrc.json » eslint-config-two` normally because only `.eslintrc.json » eslint-config-two` has it.
+             */
+            it("should load the plugins from the correct locations", () => {
+                const factory = new InMemoryConfigArrayFactory();
+                const configArray = factory.loadFile(".eslintrc.json");
+
+                assert.strictEqual(configArray.length, 3);
+                assert.strictEqual(configArray[0].name, ".eslintrc.json » eslint-config-one");
+                assert.strictEqual(configArray[0].plugins.foo.filePath, path.join(root, "node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[0].plugins.bar.filePath, path.join(root, "node_modules/eslint-plugin-bar/index.js"));
+                assert.strictEqual(configArray[0].plugins.qiz, void 0);
+                assert.strictEqual(configArray[1].name, ".eslintrc.json » eslint-config-two");
+                assert.strictEqual(configArray[1].plugins.foo.filePath, path.join(root, "node_modules/eslint-plugin-foo/index.js"));
+                assert.strictEqual(configArray[1].plugins.bar.filePath, path.join(root, "node_modules/eslint-plugin-bar/index.js"));
+                assert.strictEqual(configArray[1].plugins.qiz.filePath, path.join(root, "node_modules/eslint-config-two/node_modules/eslint-plugin-qiz/index.js"));
+                assert.strictEqual(configArray[2].name, ".eslintrc.json");
+                assert.strictEqual(configArray[2].plugins.foo, void 0);
+                assert.strictEqual(configArray[2].plugins.bar.filePath, path.join(root, "node_modules/eslint-plugin-bar/index.js"));
+                assert.strictEqual(configArray[2].plugins.qiz, void 0);
+            });
         });
     });
 });

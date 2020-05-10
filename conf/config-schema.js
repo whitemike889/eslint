@@ -29,7 +29,7 @@ const baseConfigProperties = {
         items: { $ref: "#/definitions/overrideConfig" },
         additionalItems: false
     },
-    parser: { type: ["string", "null"] },
+    parser: { type: ["string", "object", "null"] },
     parserOptions: { type: "object" },
     plugins: {
         oneOf: [

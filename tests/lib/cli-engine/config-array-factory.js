@@ -2818,4 +2818,53 @@ describe("ConfigArrayFactory", () => {
             assert.strictEqual(processor.supportsAutofix, false);
         });
     });
+
+    describe("'parser' property should allow an object.", () => {
+        const { ConfigArrayFactory } = defineConfigArrayFactoryWithInMemoryFileSystem({
+            cwd: () => tempDir,
+            files: {
+                "node_modules/my-parser/index.js": `module.exports = {
+                    parse() {
+                        return {
+                            type: "Program",
+                            sourceType: "script",
+                            body: [],
+                            tokens: [],
+                            comments: [],
+                        }
+                    },
+                }`,
+
+                // Valid.
+                "eslintrc-valid-string.json": JSON.stringify({
+                    parser: "my-parser"
+                }),
+
+                // Valid.
+                "eslintrc-valid-object.js": `module.exports = {
+                    parser: require("my-parser")
+                }`
+            }
+        });
+        const factory = new ConfigArrayFactory();
+
+        it("should handle parser names in 'parser' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid-string.json");
+            const { parser } = configArray.extractConfig("test.js");
+
+            assert.strictEqual(typeof parser.definition.parse, "function");
+            assert.strictEqual(parser.filePath, path.join(tempDir, "node_modules/my-parser/index.js"));
+        });
+
+        it("should handle parser objects in 'parser' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid-object.js");
+            const { parser } = configArray.extractConfig("test.js");
+
+            assert.strictEqual(typeof parser.definition.parse, "function");
+            assert.strictEqual(parser.filePath, path.resolve(__dirname, "../../../lib/virtual-parsers/1.js"));
+
+            // `require(filePath)` should load the parser.
+            assert.strictEqual(require(parser.filePath), parser.definition);
+        });
+    });
 });

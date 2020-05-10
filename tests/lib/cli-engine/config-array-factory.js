@@ -631,7 +631,7 @@ describe("ConfigArrayFactory", () => {
             it("should throw an error if a 'plugins' value is a file path.", () => {
                 assert.throws(() => {
                     create({ plugins: ["./path/to/plugin"] });
-                }, /Plugins array cannot includes file paths/u);
+                }, /Plugins array cannot include file paths/u);
             });
 
             describe("if the 'plugins' property was a valid package, the first config array element", () => {
@@ -2421,7 +2421,7 @@ describe("ConfigArrayFactory", () => {
             files: {
                 "node_modules/parser/index.js": "exports.parse = () => {}",
                 "node_modules/eslint-config-foo/index.js": "module.exports = { rules: { 'no-undef': 'error' } }",
-                "node_modules/eslint-plugin-foo/index.js": "exports.configs = { bar: { rules: { 'no-unused-var': 'error' } } }",
+                "node_modules/eslint-plugin-foo/index.js": "exports.configs = { bar: { rules: { 'no-unused-var': 'error' } }, baz: { parser: 'parser' } }",
 
                 // Valid.
                 "eslintrc-valid.json": JSON.stringify({
@@ -2473,6 +2473,26 @@ describe("ConfigArrayFactory", () => {
                     extends: [
                         { parser: "./node_modules/parser/index.js" }
                     ]
+                }),
+
+                // Invalid - disallows relative source in `plugin:foo/bar` extendee if the plugin `foo` is object.
+                "eslintrc-relative-in-plugin-extendee-with-object.json": JSON.stringify({
+                    extends: ["plugin:foo/bar"],
+                    plugins: {
+                        foo: {
+                            configs: {
+                                bar: { parser: "parser" }
+                            }
+                        }
+                    }
+                }),
+
+                // Valid - allows relative source in `plugin:foo/bar` extendee if the plugin `foo` is name.
+                "eslintrc-relative-in-plugin-extendee-with-name.json": JSON.stringify({
+                    extends: ["plugin:foo/baz"],
+                    plugins: {
+                        foo: "foo"
+                    }
                 })
             }
         });
@@ -2551,6 +2571,190 @@ describe("ConfigArrayFactory", () => {
                 return;
             }
             assert.fail("Should throw");
+        });
+
+        it("should throw an error if a relative source exists in the plugin extendee of object plugin", () => {
+            try {
+                factory.loadFile("eslintrc-relative-in-plugin-extendee-with-object.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Relative source 'parser' was found in the 'parser' of the object extendee 'eslintrc-relative-in-plugin-extendee-with-object.json » plugin:foo/bar'.", error.stack);
+                assert.strictEqual(error.messageTemplate, "relative-source-in-object-extendee");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-relative-in-plugin-extendee-with-object.json » plugin:foo/bar",
+                    kind: "parser",
+                    relativeSource: "parser"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should handle a relative source in the plugin extendee of plugin name successfully.", () => {
+            const configArray = factory.loadFile("eslintrc-relative-in-plugin-extendee-with-name.json");
+            const { parser } = configArray.extractConfig("test.js");
+
+            assert.strictEqual(parser.filePath, path.join(tempDir, "node_modules/parser/index.js"));
+        });
+    });
+
+    describe("'plugins' property should allow objects.", () => {
+        const { ConfigArrayFactory } = defineConfigArrayFactoryWithInMemoryFileSystem({
+            cwd: () => tempDir,
+            files: {
+                "node_modules/eslint-config-foo/index.js": "module.exports = { plugins: { foo: {} } }",
+                "node_modules/eslint-plugin-foo/index.js": `module.exports = {
+                    configs: { recommended: { plugins: ["foo"], rules: { "foo/foo-rule": "error" } } },
+                    rules: { "foo-rule": () => ({}) }
+                }`,
+                "node_modules/eslint-plugin-bar/index.js": "exports.rules = { \"bar/bar-rule\": () => ({}) }",
+
+                // Valid.
+                "eslintrc-valid.json": JSON.stringify({
+                    plugins: {
+                        foo: "foo", // ← equivalent to `plugins: ["foo"]`
+                        obj: { rules: { "obj-rule": () => ({}) } }
+                    },
+                    rules: {
+                        "foo/foo-rule": "error",
+                        "rename/foo-rule": "error",
+                        "abs/foo-rule": "error",
+                        "obj/obj-rule": "error"
+                    }
+                }),
+
+                // Invalid - disallows the empty string key.
+                "eslintrc-invalid-empty-key.json": JSON.stringify({
+                    plugins: {
+                        "": {}
+                    }
+                }),
+
+                // Invalid - disallows another name in favor of objects
+                "eslintrc-invalid-another-name.json": JSON.stringify({
+                    plugins: {
+                        foo: "bar"
+                    }
+                }),
+
+                // Invalid - disallows relative paths in favor of objects
+                "eslintrc-invalid-rel-path.json": JSON.stringify({
+                    plugins: {
+                        foo: "./node_modules/eslint-plugin-foo/index.js"
+                    }
+                }),
+
+                // Invalid - disallows absolute name in favor of objects
+                "eslintrc-invalid-abs-path.json": JSON.stringify({
+                    plugins: {
+                        foo: path.join(tempDir, "node_modules/eslint-plugin-foo/index.js")
+                    }
+                }),
+
+                // Valid - can override plugins as same as other settings.
+                "eslintrc-valid-override.json": JSON.stringify({
+                    extends: ["foo"],
+                    plugins: { foo: {} }
+                }),
+
+                // Valid - allows extending `plugin:foo/bar` even if the `foo` is an object.
+                "eslintrc-valid-extends-object-plugin.js": `
+                    const foo = require("eslint-plugin-foo");
+                    module.exports = {
+                        extends: ["plugin:foo/recommended"],
+                        plugins: { foo }
+                    };
+                `
+            }
+        });
+        const factory = new ConfigArrayFactory();
+
+        it("should handle objects in 'plugins' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid.json");
+            const { plugins, rules } = configArray.extractConfig("test.js");
+
+            assert.deepStrictEqual(Object.keys(plugins), ["foo", "obj"]);
+            assert.deepStrictEqual(rules, {
+                "foo/foo-rule": ["error"],
+                "rename/foo-rule": ["error"],
+                "abs/foo-rule": ["error"],
+                "obj/obj-rule": ["error"]
+            });
+        });
+
+        it("should throw an error if the empty string key exists in the 'plugins' property", () => {
+            try {
+                factory.loadFile("eslintrc-invalid-empty-key.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Plugins object cannot include the empty string key.");
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if another module name exists in the 'plugins' property", () => {
+            try {
+                factory.loadFile("eslintrc-invalid-another-name.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Cannot specify 'bar' at 'plugins.foo' in 'eslintrc-invalid-another-name.json'.");
+                assert.strictEqual(error.messageTemplate, "invalid-plugin-value");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-invalid-another-name.json",
+                    pluginId: "foo",
+                    value: "bar"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if a relative path exists in the 'plugins' property", () => {
+            try {
+                factory.loadFile("eslintrc-invalid-rel-path.json");
+            } catch (error) {
+                assert.strictEqual(error.message, "Cannot specify './node_modules/eslint-plugin-foo/index.js' at 'plugins.foo' in 'eslintrc-invalid-rel-path.json'.");
+                assert.strictEqual(error.messageTemplate, "invalid-plugin-value");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-invalid-rel-path.json",
+                    pluginId: "foo",
+                    value: "./node_modules/eslint-plugin-foo/index.js"
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should throw an error if an absolute path exists in the 'plugins' property", () => {
+            try {
+                factory.loadFile("eslintrc-invalid-abs-path.json");
+            } catch (error) {
+                assert.strictEqual(error.message, `Cannot specify '${path.join(tempDir, "node_modules/eslint-plugin-foo/index.js")}' at 'plugins.foo' in 'eslintrc-invalid-abs-path.json'.`);
+                assert.strictEqual(error.messageTemplate, "invalid-plugin-value");
+                assert.deepStrictEqual(error.messageData, {
+                    importerName: "eslintrc-invalid-abs-path.json",
+                    pluginId: "foo",
+                    value: path.join(tempDir, "node_modules/eslint-plugin-foo/index.js")
+                });
+                return;
+            }
+            assert.fail("Should throw");
+        });
+
+        it("should handle the same name plugins successfully.", () => {
+            const configArray = factory.loadFile("eslintrc-valid-override.json");
+            const { plugins } = configArray.extractConfig("test.js");
+
+            assert.deepStrictEqual(
+                plugins.foo.importerName,
+                "eslintrc-valid-override.json" // rather than `eslintrc-valid-override.json » eslint-config-foo`
+            );
+        });
+
+        it("should handle 'plugin:foo/bar' extendee successfully even if the plugin is an object.", () => {
+            const configArray = factory.loadFile("eslintrc-valid-extends-object-plugin.js");
+            const { plugins, rules } = configArray.extractConfig("test.js");
+
+            assert.deepStrictEqual(Object.keys(plugins), ["foo"]);
+            assert.deepStrictEqual(rules, { "foo/foo-rule": ["error"] });
         });
     });
 });

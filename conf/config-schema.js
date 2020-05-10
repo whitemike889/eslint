@@ -44,7 +44,7 @@ const baseConfigProperties = {
             }
         ]
     },
-    processor: { type: "string" },
+    processor: { type: ["string", "object"] },
     rules: { type: "object" },
     settings: { type: "object" },
     noInlineConfig: { type: "boolean" },

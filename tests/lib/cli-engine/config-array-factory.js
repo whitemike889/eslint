@@ -2757,4 +2757,65 @@ describe("ConfigArrayFactory", () => {
             assert.deepStrictEqual(rules, { "foo/foo-rule": ["error"] });
         });
     });
+
+    describe("'processor' property should allow an object.", () => {
+        const { ConfigArrayFactory } = defineConfigArrayFactoryWithInMemoryFileSystem({
+            cwd: () => tempDir,
+            files: {
+                "node_modules/eslint-plugin-foo/index.js": `module.exports = {
+                    processors: {
+                        bar: {
+                            preprocess(text) {
+                                return [text]
+                            },
+                            postprocess(messages) {
+                                return [].concat(...messages)
+                            },
+                            supportsAutofix: true
+                        }
+                    }
+                }`,
+
+                // Valid.
+                "eslintrc-valid-string.json": JSON.stringify({
+                    plugins: ["foo"],
+                    processor: "foo/bar"
+                }),
+
+                // Valid.
+                "eslintrc-valid-object.js": `module.exports = {
+                    processor: {
+                        preprocess(text) {
+                            return [text];
+                        },
+                        postprocess(messages) {
+                            return [].concat(...messages);
+                        },
+                        supportsAutofix: false
+                    }
+                }`
+            }
+        });
+        const factory = new ConfigArrayFactory();
+
+        it("should handle processor names in 'processor' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid-string.json");
+            const { processor } = configArray.extractConfig("test.js");
+
+            assert.strictEqual(typeof processor, "object");
+            assert.strictEqual(typeof processor.preprocess, "function");
+            assert.strictEqual(typeof processor.postprocess, "function");
+            assert.strictEqual(processor.supportsAutofix, true);
+        });
+
+        it("should handle processor objects in 'processor' field successfully", () => {
+            const configArray = factory.loadFile("eslintrc-valid-object.js");
+            const { processor } = configArray.extractConfig("test.js");
+
+            assert.strictEqual(typeof processor, "object");
+            assert.strictEqual(typeof processor.preprocess, "function");
+            assert.strictEqual(typeof processor.postprocess, "function");
+            assert.strictEqual(processor.supportsAutofix, false);
+        });
+    });
 });

@@ -60,11 +60,11 @@ const { Volume, createFsFromVolume } = require("memfs");
 const Proxyquire = require("proxyquire/lib/proxyquire");
 
 const CascadingConfigArrayFactoryPath =
-    require.resolve("../../lib/cli-engine/cascading-config-array-factory");
+    require.resolve("@eslint/eslintrc/lib/cascading-config-array-factory");
 const CLIEnginePath =
     require.resolve("../../lib/cli-engine/cli-engine");
 const ConfigArrayFactoryPath =
-    require.resolve("../../lib/cli-engine/config-array-factory");
+    require.resolve("@eslint/eslintrc/lib/config-array-factory");
 const FileEnumeratorPath =
     require.resolve("../../lib/cli-engine/file-enumerator");
 const LoadRulesPath =
@@ -307,7 +307,7 @@ function defineConfigArrayFactoryWithInMemoryFileSystem({
 
     stubs.fs = fs;
     stubs["import-fresh"] = fsImportFresh.bind(null, fs, stubs);
-    stubs["../shared/relative-module-resolver"] = RelativeModuleResolver;
+    stubs["@eslint/eslintrc/lib/shared/relative-module-resolver"] = RelativeModuleResolver;
 
     /*
      * Write all files to the in-memory file system and compile all JavaScript
@@ -382,11 +382,15 @@ function defineCascadingConfigArrayFactoryWithInMemoryFileSystem({
 } = {}) {
     const { fs, stubs, RelativeModuleResolver, ConfigArrayFactory } =
            defineConfigArrayFactoryWithInMemoryFileSystem({ cwd, files });
-    const loadRules = proxyquire(LoadRulesPath, stubs);
+
+    // const loadRules = proxyquire(LoadRulesPath, stubs);
     const { CascadingConfigArrayFactory } =
         proxyquire(CascadingConfigArrayFactoryPath, {
             "./config-array-factory": { ConfigArrayFactory },
-            "./load-rules": loadRules
+            fs,
+            "import-fresh": fsImportFresh.bind(null, fs, stubs)
+
+            // "./load-rules": loadRules
         });
 
     // Override the default cwd.
@@ -424,7 +428,7 @@ function defineFileEnumeratorWithInMemoryFileSystem({
         defineCascadingConfigArrayFactoryWithInMemoryFileSystem({ cwd, files });
     const { FileEnumerator } = proxyquire(FileEnumeratorPath, {
         fs,
-        "./cascading-config-array-factory": { CascadingConfigArrayFactory }
+        "@eslint/eslintrc/lib/cascading-config-array-factory": { CascadingConfigArrayFactory }
     });
 
     // Override the default cwd.
@@ -464,9 +468,9 @@ function defineCLIEngineWithInMemoryFileSystem({
         defineFileEnumeratorWithInMemoryFileSystem({ cwd, files });
     const { CLIEngine, getCLIEngineInternalSlots } = proxyquire(CLIEnginePath, {
         fs,
-        "./cascading-config-array-factory": { CascadingConfigArrayFactory },
+        "@eslint/eslintrc/lib/cascading-config-array-factory": { CascadingConfigArrayFactory },
         "./file-enumerator": { FileEnumerator },
-        "../shared/relative-module-resolver": RelativeModuleResolver
+        "@eslint/eslintrc/lib/shared/relative-module-resolver": RelativeModuleResolver
     });
 
     // Override the default cwd.

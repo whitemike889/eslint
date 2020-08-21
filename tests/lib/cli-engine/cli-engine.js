@@ -16,7 +16,7 @@ const assert = require("chai").assert,
     fs = require("fs"),
     os = require("os"),
     hash = require("../../../lib/cli-engine/hash"),
-    { CascadingConfigArrayFactory } = require("../../../lib/cli-engine/cascading-config-array-factory"),
+    { Legacy: { CascadingConfigArrayFactory } } = require("@eslint/eslintrc"),
     { unIndent, defineCLIEngineWithInMemoryFileSystem } = require("../../_utils");
 
 const proxyquire = require("proxyquire").noCallThru().noPreserveCache();
@@ -2970,7 +2970,7 @@ describe("CLIEngine", () => {
             });
         });
 
-        describe("a config file setting should have higher priority than a shareable config file's settings always; https://github.com/eslint/eslint/issues/11510", () => {
+        describe.only("a config file setting should have higher priority than a shareable config file's settings always; https://github.com/eslint/eslint/issues/11510", () => {
             beforeEach(() => {
                 ({ CLIEngine } = defineCLIEngineWithInMemoryFileSystem({
                     cwd: () => path.join(os.tmpdir(), "cli-engine/11510"),
